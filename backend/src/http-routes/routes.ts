@@ -1,8 +1,9 @@
 import { compare, hash } from "bcrypt";
 import { Response, Router } from "express";
 import { prisma } from "../prisma";
-import jwt from "jsonwebtoken";
+import jwt, { JwtPayload } from "jsonwebtoken";
 import { authMiddleware, AuthRequest } from "../http-middleware/middleware";
+import { generateAccessTokenWithRefreshToken } from "./helper";
 
 const router: Router = Router();
 
@@ -11,12 +12,6 @@ interface RoomProps extends AuthRequest {
     name: string;
   };
 }
-
-// interface ChatProps extends AuthRequest {
-//   params: {
-//     roomId: string;
-//   };
-// }
 
 router.get("/", (req, res) => {
   res.send("Hello World!");
@@ -73,8 +68,105 @@ router.post("/login", async (req, res) => {
       return;
     }
 
-    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET!);
-    res.status(200).send({ token });
+    const { accessToken, refreshToken } =
+      await generateAccessTokenWithRefreshToken(user.id);
+
+    await prisma.user.update({
+      where: {
+        id: user.id,
+      },
+      data: {
+        refreshToken,
+      },
+    });
+
+    res.status(200).json({
+      accessToken,
+      refreshToken,
+    });
+  } catch (error) {
+    console.log("Internal Server Error", error);
+    res.status(500).send("Internal Server Error");
+  }
+});
+
+router.post(
+  "/logout",
+  authMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const userId = req.userId;
+      if (!userId) {
+        res.status(401).send("Unauthorized");
+        return;
+      }
+      const user = await prisma.user.update({
+        where: {
+          id: userId,
+        },
+        data: {
+          refreshToken: "",
+        },
+      });
+
+      res.status(200).json({ message: "Logged out successfully", user });
+    } catch (error) {
+      console.log("Internal Server Error", error);
+      res.status(500).send("Internal Server Error");
+    }
+  }
+);
+
+router.post("/refresh-token", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    const oldRefreshToken = authHeader?.split(" ")[1];
+    if (!oldRefreshToken) {
+      res.status(400).send("Missing required fields");
+      return;
+    }
+    const refreshTokenPayload = jwt.verify(
+      oldRefreshToken,
+      process.env.JWT_SECRET!
+    ) as JwtPayload;
+
+    if (!refreshTokenPayload.userId) {
+      res.status(401).send("Unauthorized");
+      return;
+    }
+    const user = await prisma.user.findUnique({
+      where: {
+        id: refreshTokenPayload.userId,
+      },
+    });
+
+    if (!user) {
+      res.status(401).send("No user found");
+      return;
+    }
+
+    if (oldRefreshToken !== user.refreshToken) {
+      res.status(401).send("Refresh Token Expired!");
+      return;
+    }
+
+    const { accessToken, refreshToken } =
+      await generateAccessTokenWithRefreshToken(user.id);
+
+    const updatedUser = await prisma.user.update({
+      where: {
+        id: user.id,
+      },
+      data: {
+        refreshToken,
+      },
+    });
+
+    res.status(200).json({
+      accessToken,
+      refreshToken,
+    });
   } catch (error) {
     console.log("Internal Server Error", error);
     res.status(500).send("Internal Server Error");

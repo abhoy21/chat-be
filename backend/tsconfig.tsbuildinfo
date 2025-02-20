@@ -1,1 +1,1 @@
-{"root":["./src/index.ts","./src/prisma.ts","./src/http-middleware/middleware.ts","./src/http-routes/routes.ts","./src/worker/index.ts","./src/ws/chat-functions.ts","./src/ws/state-management.ts"],"version":"5.7.3"}
+{"root":["./src/index.ts","./src/prisma.ts","./src/http-middleware/middleware.ts","./src/http-routes/helper.ts","./src/http-routes/routes.ts","./src/ws/chat-functions.ts","./src/ws/state-management.ts"],"version":"5.7.3"}
